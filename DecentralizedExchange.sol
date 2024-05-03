@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 
 
-interface IERC20 {
+interface IERC20Vault {
 
     function totalSupply() external view returns (uint256);
     function balanceOf(address account) external view returns (uint256);
@@ -15,7 +15,7 @@ interface IERC20 {
     function setPublicVariable (string memory name, string memory symbol, uint8 decimals) external returns (address);
     function deposit(address depositor, uint256 numTokens) external returns (bool);
     function transfer(address sender, address recipient, uint256 amount) external returns (bool);
-    function approve(address spender, uint256 amount) external returns (bool);
+    function approve(address owner, address spender, uint256 amount) external returns (bool);
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
 
     event Deposit(address indexed depositor, uint256 numTokens);
@@ -23,8 +23,20 @@ interface IERC20 {
     event Approval(address indexed owner, address indexed spender, uint256 value);
 }
 
+interface IERC20 {
+    function name() external view returns (string calldata) ;
+    function symbol() external view returns (string calldata) ;
+    function decimals() external view returns (uint8) ;
+    function totalSupply() external view returns (uint256) ;
+    function balanceOf(address _owner) external view returns (uint256 balance) ;
+    function transfer(address _to, uint256 _value) external returns (bool success) ;
+    function transferFrom(address _from, address _to, uint256 _value) external returns (bool success) ;
+    function approve(address _spender, uint256 _value) external returns (bool success) ;
+    function allowance(address _owner, address _spender) external view returns (uint256 remaining) ;
+}
 
-contract ERC20Basic is IERC20 {
+
+contract ERC20Vault is IERC20Vault {
 
     string internal  name;
     string internal  symbol;
@@ -77,14 +89,21 @@ contract ERC20Basic is IERC20 {
     }
 
     function deposit(address depositor, uint256 numTokens) external override returns (bool){
-        require(IERC20 (originalContractAddress).allowance(depositor, address(this)) >= numTokens);
+        require(IERC20 (originalContractAddress).allowance(depositor, address(this)) >= numTokens, "Not enough allowance to spend");
         IERC20 (originalContractAddress).transferFrom(depositor, address(this), numTokens);
+        require (mint(address(0), numTokens), "Mint wrapped token failed");
         transfer(address(0), depositor, numTokens);
 
         emit Deposit(depositor, numTokens);
         return true;
 
     }
+
+    function mint(address mintAddress, uint256 numToken) internal returns (bool){
+        balances[mintAddress] += numToken;
+        return true;
+    }
+
     function transfer(address sender, address receiver, uint256 numTokens) public override returns (bool) {
 
         require(numTokens <= balances[sender]);
@@ -94,9 +113,10 @@ contract ERC20Basic is IERC20 {
         return true;
     }
 
-    function approve(address spender, uint256 numTokens) public override returns (bool) {
-        allowed[msg.sender][spender] = numTokens;
-        emit Approval(msg.sender, spender, numTokens);
+    function approve(address owner, address spender, uint256 numTokens) public override returns (bool) {
+       
+        allowed[owner][spender] = numTokens;
+        emit Approval(owner, spender, numTokens);
         return true;
     }
 
@@ -123,7 +143,7 @@ interface IDex {
     function createVaultToken (address originalContractAddress, string memory _name, string memory _symbol, uint8 _decimals) external returns (bool);
     function balanceOf (address indeERC20ContractAddress, address tokenOwner) external view returns (uint256);
     function deposit (address ERC20ContractAddress, uint256 _amount) external returns (bool);
-    function transfer(address ERC20ContractAddress, address recepient, uint256 _amount) external returns (bool);
+    function approve(address ERC20ContractAddress, uint256 _amount) external returns (uint256);
 
 }
 
@@ -141,7 +161,7 @@ contract Xchange is IDex{
     mapping (address => Token ) public ERC20VaultList;
     address [] public ERC20TokenList;
 
-    IERC20 private vault;
+    ERC20Vault private vault;
     address owner;
 
     constructor() {
@@ -152,7 +172,7 @@ contract Xchange is IDex{
 
     function createVaultToken (address originalContractAddress, string memory _name, string memory _symbol, uint8 _decimals) external override returns (bool) {
         require((msg.sender) == owner, "Only owner can create new ERC20 token vault");
-        vault = new ERC20Basic(originalContractAddress);
+        vault = new ERC20Vault(originalContractAddress);
         address wrappedContractAddress = addTokenDetails(_name, _symbol, _decimals);
         ERC20VaultList[originalContractAddress] = Token(wrappedContractAddress, originalContractAddress);
         ERC20TokenList.push(originalContractAddress);
@@ -164,37 +184,26 @@ contract Xchange is IDex{
     }
 
     function balanceOf (address ERC20ContractAddress, address tokenOwner) external override view returns (uint256){
-        return (IERC20 (ERC20VaultList[ERC20ContractAddress].wrappedContractAddress).balanceOf(tokenOwner));
+        return (IERC20Vault (ERC20VaultList[ERC20ContractAddress].wrappedContractAddress).balanceOf(tokenOwner));
         
     }
     
     function deposit (address ERC20ContractAddress, uint256 _amount) external override returns (bool){
         require(IERC20 (ERC20ContractAddress).approve(ERC20VaultList[ERC20ContractAddress].wrappedContractAddress, _amount), "Approval Failed");
-        require(IERC20 (ERC20VaultList[ERC20ContractAddress].wrappedContractAddress).deposit(msg.sender, _amount), "Failed to transfer deposit balance");
+        require(IERC20Vault (ERC20VaultList[ERC20ContractAddress].wrappedContractAddress).deposit(msg.sender, _amount), "Failed to transfer deposit balance");
         return true;
     }
 
-    function transfer(address ERC20ContractAddress, address recepient, uint256 _amount) external override returns (bool){
-        return (IERC20 (ERC20VaultList[ERC20ContractAddress].wrappedContractAddress).transfer(msg.sender, recepient, _amount));
+    function approve(address ERC20ContractAddress, uint256 _amount) external override returns (uint256){
+        require (IERC20Vault (ERC20VaultList[ERC20ContractAddress].wrappedContractAddress).approve(msg.sender, address(this), _amount), "Approval failed");
+        
+        return (IERC20Vault (ERC20VaultList[ERC20ContractAddress].wrappedContractAddress).allowance(msg.sender, address(this)));
     }
 
-
-    // function buy() payable public {
-    //     uint256 amountTobuy = msg.value;
-    //     uint256 dexBalance = token.balanceOf(address(this));
-    //     require(amountTobuy > 0, "You need to send some ether");
-    //     require(amountTobuy <= dexBalance, "Not enough tokens in the reserve");
-    //     // token.transfer(msg.sender, amountTobuy);
-    //     emit Bought(amountTobuy);
-    // }
-
-    // function sell(uint256 amount) public {
-    //     require(amount > 0, "You need to sell at least some tokens");
-    //     uint256 allowance = token.allowance(msg.sender, address(this));
-    //     require(allowance >= amount, "Check the token allowance");
-    //     token.transferFrom(msg.sender, address(this), amount);
-    //     payable(msg.sender).transfer(amount);
-    //     emit Sold(amount);
-    // }
+    function transferFrom (address wrappedContractAddress, address sender, address recepient, uint256 _amount) internal returns (bool) {
+        require (IERC20Vault (wrappedContractAddress).transferFrom(sender, recepient, _amount), "Transfer from method failed");
+        return true;
+        
+    }
 
 }
