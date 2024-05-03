@@ -5,8 +5,10 @@ pragma solidity ^0.8.0;
 interface IAssetsPairOrderBook {
 
     // function fillOrderBook (address FromAsset, address ToAsset, address OrderAddr, int256 OrderQty, int256 OrderPrice, int OrderType) external returns (bool);
+    function entryOrderBook(address _FromAsset, address _ToAsset, address _TraderAddress, int256 _OrderQty, int256 _OrderPrice, int _OrderType) external returns (bool);
     function removeOrderBook (address FromAsset, address ToAsset, address OrderAddr, int256 OrderQty, int256 OrderPrice) external returns (bool);
-    
+    function getPrice (address _FromAsset, address _ToAsset) external view returns (uint256, uint256);
+
     event Settlement (address _FromAsset, address _ToAsset, address _TraderAddress, address _TakerAddress, uint256 _OrderQty, uint256 _ValueSettlement, uint256 _Price);
     // event Transaction
     
@@ -59,7 +61,7 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
     
     //Order entry must be stacked in StackOrderList, and will be execute in order from the begining.
     //
-    function entryOrderBook(address _FromAsset, address _ToAsset, address _TraderAddress, int256 _OrderQty, int256 _OrderPrice, int _OrderType) external returns (bool){
+    function entryOrderBook(address _FromAsset, address _ToAsset, address _TraderAddress, int256 _OrderQty, int256 _OrderPrice, int _OrderType) external override returns (bool){
         require(msg.sender == _FromAsset, "Only Vault have permission to fill order book");
         StackOrderList[_FromAsset][_ToAsset].push(OrderStackData(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, _OrderPrice, _OrderType));
         require(fillOrderBook(StackOrderList[_FromAsset][_ToAsset][0].FromAsset, 
@@ -279,11 +281,14 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
 
     function orderSettlement (address _FromAsset, address _ToAsset, address _TraderAddressMaker, address _TraderAddressTaker, uint256 _OrderQty, uint256 _ValueSettlement) private returns (bool){
         //Send _FromAsset from maker to taker 
-        require (IERC20 (_FromAsset).transfer(_TraderAddressMaker,_TraderAddressTaker, _OrderQty), "Order failed to settlement");
+        // require (IERC20 (_FromAsset).transfer(_TraderAddressMaker,_TraderAddressTaker, _OrderQty), "Order failed to settlement");
         //Send _ToAsset from taker to maker 
-        require (IERC20 (_ToAsset).transfer(_TraderAddressTaker,_TraderAddressMaker, _ValueSettlement), "Order failed to settlement");
+        // require (IERC20 (_ToAsset).transfer(_TraderAddressTaker,_TraderAddressMaker, _ValueSettlement), "Order failed to settlement");
         //emit settlement
         return true;
     }
 
+    function getPrice (address _FromAsset, address _ToAsset) external override view returns (uint256, uint256) {
+       return (uint256 (AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice), uint256 (AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice)) ;
+    }
 }
