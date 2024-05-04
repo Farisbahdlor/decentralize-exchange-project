@@ -267,9 +267,10 @@ contract Xchange is IDex{
         return true;
     }
 
-    function lending(address _CollateralAsset, address _BorrowAsset, uint256 _Value, uint256 _DueTime) external override returns (bool){
+    function lending(address _OriginalCollateralAsset, address _OriginalBorrowAsset, uint256 _Value, uint256 _DueTime) external override returns (bool){
+        require (IERC20Vault (ERC20VaultList[_OriginalCollateralAsset].wrappedContractAddress).approve(msg.sender, lendingProtocol, _Value), "Approval failed");
         
-        require(ILendingProtocol (lendingProtocol).borrow(_CollateralAsset, msg.sender, _BorrowAsset, _Value, _DueTime));
+        require(ILendingProtocol (lendingProtocol).borrow(ERC20VaultList[_OriginalCollateralAsset].wrappedContractAddress, msg.sender, ERC20VaultList[_OriginalBorrowAsset].wrappedContractAddress, _Value, _DueTime));
         return true;
     }
 
