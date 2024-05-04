@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 interface ILendingProtocol {
-    
+    function borrow(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Value, uint256 _DueTime) external returns (bool);
     event LoanApproval (address _Collateral, address _Borrow, uint256 _CollateralAmount , uint256 _LoanAmount, uint256 Timestamp, uint256 DueTime);
 }
 
@@ -18,7 +18,7 @@ interface IAssetsPairOrderBook {
     
 }
 
-interface IERC20 {
+interface IERC20Vault {
     function transfer(address _TraderAddressMaker, address _TraderAddressTaker, uint256 _ValueSettlement) external returns (bool) ;
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
     function allowance(address owner, address spender) external view returns (uint256);
@@ -69,15 +69,15 @@ contract LendingProtocol is ILendingProtocol {
         return _LoanAmountToBorrow;
     }
 
-    function Borrow(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Value, uint256 _DueTime) external returns (bool){
+    function borrow(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Value, uint256 _DueTime) external override returns (bool){
         //Borrower must approve first in main contract to execute this function.
-        require(IERC20 (_CollateralAsset).allowance(_Borrower, _CollateralAsset) >= _Value);
+        require(IERC20Vault (_CollateralAsset).allowance(_Borrower, address(this)) >= _Value);
         //Get loan amount 
         uint256 _LoanAmount = loanAmount(_CollateralAsset, _BorrowAsset, _Value);
         //Transfer collateral asset from user to vault based on loan requested using approval and transferfrom method.
-        require(IERC20 (_CollateralAsset).transferFrom(_Borrower, _CollateralAsset, _Value), "Transfer From collateral failed.");
+        require(IERC20Vault (_CollateralAsset).transferFrom(_Borrower, _CollateralAsset, _Value), "Transfer From collateral failed.");
         //Transfer loan asset from vault to user based on loan amount calculation.
-        require(IERC20 (_CollateralAsset).transfer(_BorrowAsset, _Borrower, _LoanAmount), "Transfer loan failed.");
+        require(IERC20Vault (_BorrowAsset).transfer(_BorrowAsset, _Borrower, _LoanAmount), "Transfer loan failed.");
         //Loan transaction timestamp
         uint256 _Timestamp = block.timestamp;
         //push Lending Data for record
