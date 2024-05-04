@@ -14,7 +14,7 @@ interface IAssetsPairOrderBook {
     
 }
 
-interface IERC20 {
+interface IERC20Vault {
     function transfer(address _TraderAddressMaker, address _TraderAddressTaker, uint256 _ValueSettlement) external returns (bool) ;
 }
 
@@ -255,7 +255,7 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
         uint256 i = 0;
         require(OrderBook[_FromAsset][_ToAsset][_OrderPrice][i].TraderAddress != address(0), "Invalid Orderbook list to remove");
         //search orderbook list matched with trader address request
-        while (OrderBook[_FromAsset][_ToAsset][_OrderPrice][i].TraderAddress != _OrderAddr){
+        while (OrderBook[_FromAsset][_ToAsset][_OrderPrice][i].TraderAddress != address(0)){
             i++;
         }
         
@@ -281,9 +281,9 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
 
     function orderSettlement (address _FromAsset, address _ToAsset, address _TraderAddressMaker, address _TraderAddressTaker, uint256 _OrderQty, uint256 _ValueSettlement) private returns (bool){
         //Send _FromAsset from maker to taker 
-        // require (IERC20 (_FromAsset).transfer(_TraderAddressMaker,_TraderAddressTaker, _OrderQty), "Order failed to settlement");
+        require (IERC20Vault (_FromAsset).transfer(_TraderAddressMaker,_TraderAddressTaker, _OrderQty), "Order failed to settlement");
         //Send _ToAsset from taker to maker 
-        // require (IERC20 (_ToAsset).transfer(_TraderAddressTaker,_TraderAddressMaker, _ValueSettlement), "Order failed to settlement");
+        require (IERC20Vault (_ToAsset).transfer(_TraderAddressTaker,_TraderAddressMaker, _ValueSettlement), "Order failed to settlement");
         //emit settlement
         return true;
     }
