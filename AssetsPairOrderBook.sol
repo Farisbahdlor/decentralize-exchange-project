@@ -106,8 +106,14 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
             }
 
         }
+        //if order price in between current mark Bid/Ask price, then initiate to fillorderbook then change the mark Bid/Ask price
+        else if (AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice > _OrderPrice && 
+        AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice < _OrderPrice){
+            require(fillOrderbook(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, _OrderPrice), "Order placement failed");
+            return true;
+        }
         else{
-            require(fillOrderbook(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, _OrderPrice), "Order palcement failed");
+            require(fillOrderbook(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, _OrderPrice), "Order placement failed");
             return true;
         }
     }
@@ -245,7 +251,12 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
         if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice == 0 ){
             AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice = _OrderPrice;
         }
-        else if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice == 0 && AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice > AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice){
+        else if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice == 0 && 
+        AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice > AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice){
+            AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice = _OrderPrice;
+        }
+        else if (AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice > _OrderPrice && 
+        AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice < _OrderPrice){
             AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice = _OrderPrice;
         }
         return true;
