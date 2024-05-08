@@ -173,6 +173,9 @@ interface IDex {
     function transferFrom (address ERC20ContractAddress, address sender, address recepient, uint256 _amount) external returns (bool);
     function transfer(address ERC20ContractAddress, address recepient, uint256 _amount) external returns (bool);
     function lending (address _CollateralAsset, address _BorrowAsset, uint256 _Value, uint256 _DueTime) external returns (bool);
+    function addCollateralLending(address _OriginalCollateralAsset, address _OriginalBorrowAsset, uint256 _Index, uint256 _AmountAdd) external returns (bool);
+    function decreaseCollateralLending(address _OriginalCollateralAsset, address _OriginalBorrowAsset, uint256 _Index, uint256 _AmountAdd) external returns (bool);
+    function LTVCheckLending(address _OriginalCollateralAsset, address _OriginalBorrowAsset, uint256 _Index, uint256 _Value) external view returns (uint256);
     function entryOrderBook(address _OriginalFromAsset, address _OriginalToAsset, int256 _OrderQty, int256 _OrderPrice, int _OrderType) external returns (bool);
     function removeOrderBook (address _OriginalFromAsset, address _OriginalToAsset, int256 _OrderQty, int256 _OrderPrice) external returns (bool);
     function getPrice (address _OriginalFromAsset, address _OriginalToAsset) external view returns (uint256, uint256);    
@@ -182,6 +185,9 @@ interface IDex {
 
 interface ILendingProtocol {
     function borrow(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Value, uint256 _DueTime) external returns (bool);
+    function addCollateral(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index, uint256 _AmountAdd) external returns (bool);
+    function decreaseCollateral(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index, uint256 _AmountDecrease) external returns (bool);
+    function LTVCheck(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index, uint256 _Value) external view returns (uint256);
     event LoanApproval (address _Collateral, address _Borrow, uint256 _CollateralAmount , uint256 _LoanAmount, uint256 Timestamp, uint256 DueTime);
 }
 
@@ -272,6 +278,23 @@ contract Xchange is IDex{
         
         require(ILendingProtocol (lendingProtocol).borrow(ERC20VaultList[_OriginalCollateralAsset].wrappedContractAddress, msg.sender, ERC20VaultList[_OriginalBorrowAsset].wrappedContractAddress, _Value, _DueTime));
         return true;
+    }
+
+    function addCollateralLending(address _OriginalCollateralAsset, address _OriginalBorrowAsset, uint256 _Index, uint256 _AmountAdd) external override returns (bool){
+        require (IERC20Vault (ERC20VaultList[_OriginalCollateralAsset].wrappedContractAddress).approve(msg.sender, lendingProtocol, _AmountAdd), "Approval failed");
+        
+        require(ILendingProtocol (lendingProtocol).addCollateral(ERC20VaultList[_OriginalCollateralAsset].wrappedContractAddress, msg.sender, ERC20VaultList[_OriginalBorrowAsset].wrappedContractAddress, _Index, _AmountAdd));
+        return true;
+    }
+
+    function decreaseCollateralLending(address _OriginalCollateralAsset, address _OriginalBorrowAsset, uint256 _Index, uint256 _AmountAdd) external override returns (bool){
+        
+        require(ILendingProtocol (lendingProtocol).decreaseCollateral(ERC20VaultList[_OriginalCollateralAsset].wrappedContractAddress, msg.sender, ERC20VaultList[_OriginalBorrowAsset].wrappedContractAddress, _Index, _AmountAdd));
+        return true;
+    }
+
+    function LTVCheckLending(address _OriginalCollateralAsset, address _OriginalBorrowAsset, uint256 _Index, uint256 _Value) external view override returns (uint256){
+        return (ILendingProtocol (lendingProtocol).LTVCheck(_OriginalCollateralAsset, msg.sender, _OriginalBorrowAsset, _Index, _Value));
     }
 
     function entryOrderBook(address _OriginalFromAsset, address _OriginalToAsset, int256 _OrderQty, int256 _OrderPrice, int _OrderType) external override returns (bool){
