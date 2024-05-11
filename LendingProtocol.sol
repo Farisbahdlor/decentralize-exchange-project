@@ -6,9 +6,12 @@ interface ILendingProtocol {
     function addCollateral(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index, uint256 _AmountAdd) external returns (bool);
     function decreaseCollateral(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index, uint256 _AmountDecrease) external returns (bool);
     function LTVCheck(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index, uint256 _Value) external view returns (uint256);
-    
+    function repayLoan(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index, uint256 _Amount) external returns (bool);
+    function liquidationLoan(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index) external returns (bool);
 
-    event LoanApproval (address _Collateral, address _Borrow, uint256 _CollateralAmount , uint256 _LoanAmount, uint256 Timestamp, uint256 DueTime);
+    event LoanLiquidated(address _CollateralAsset, address _BorrowAsset, address _Borrower, uint256 _LiquidationAmount, uint256 _timestamp);
+    event LoanApproval (address _Collateral, address _Borrow, uint256 _CollateralAmount , uint256 _LoanAmount, uint256 _timestamp, uint256 _dueTime);
+    event LoanRepaid(address _collateralAsset, address _borrowAsset, address _borrower, uint256 _amount, uint256 _timestamp);
 }
 
 interface IAssetsPairOrderBook {
@@ -40,6 +43,15 @@ contract LendingProtocol is ILendingProtocol {
         uint256 EndTime;
     }
 
+    struct LoanLiquidationData {
+        uint256 Collateral;
+        uint256 StartTime;
+        uint256 EndTime;
+        bool LiquidationStatus;
+    }
+
+    mapping (address => mapping(address => LoanLiquidationData[])) private LoanLiquidationList;
+
     //User Lending Data
     //Collateral Asset => Borrowed Asset => User or Vault  => Lending Data
     //Allow user or Vault to borrow from one asset to multiple asset.
@@ -48,6 +60,8 @@ contract LendingProtocol is ILendingProtocol {
     //Loan to Value Ratio
     mapping(address => mapping(address => uint256)) public LoanToValue;
     mapping(address => mapping(address => uint256)) public LiquidationRatio;
+
+    //Loan fee for 24 hour.
     uint256 LoanFee;
 
     address Owner;
@@ -67,12 +81,18 @@ contract LendingProtocol is ILendingProtocol {
     }
 
     function loanAmount(address _CollateralAsset, address _BorrowAsset, uint256 _Value) internal view returns (uint256){
+        uint256 _price;
+        uint256 _AmountAfterLTV = _Value * LoanToValue[_CollateralAsset][_BorrowAsset];
+        _price = getPrice(_CollateralAsset, _BorrowAsset);
+        uint256 _LoanAmountToBorrow = _AmountAfterLTV *  _price;
+        return _LoanAmountToBorrow;
+    }
+
+    function getPrice(address _CollateralAsset, address _BorrowAsset) internal view returns (uint256){
         uint256 _bidPrice;
         uint256 _askPrice;
-        uint256 _AmountAfterLTV = _Value * LoanToValue[_CollateralAsset][_BorrowAsset];
         (_bidPrice, _askPrice) = IAssetsPairOrderBook (AssetPairOrderBook).getPrice(_CollateralAsset, _BorrowAsset);
-        uint256 _LoanAmountToBorrow = _AmountAfterLTV *  ((_bidPrice + _askPrice) / 2);
-        return _LoanAmountToBorrow;
+        return ((_bidPrice + _askPrice) / 2);
     }
 
     function borrow(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Value, uint256 _DueTime) external override returns (bool){
@@ -111,7 +131,7 @@ contract LendingProtocol is ILendingProtocol {
     }
 
     function decreaseCollateral(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index, uint256 _AmountDecrease) external override returns (bool){
-        uint256 _NewCollateral = Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].Collateral + _AmountDecrease;
+        uint256 _NewCollateral = Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].Collateral - _AmountDecrease;
         uint256 _NewLTV = LTVCheck(_CollateralAsset, _Borrower, _BorrowAsset, _Index, _NewCollateral);
         require(_NewLTV >= LiquidationRatio[_CollateralAsset][_BorrowAsset], "New LTV must lower then liquidation ratio");
         require(IERC20Vault (_CollateralAsset).transfer(_CollateralAsset, _Borrower, _AmountDecrease), "Transfer amount collateral decrease failed");
@@ -132,8 +152,62 @@ contract LendingProtocol is ILendingProtocol {
         return _NewLTV;
     }
 
-    function paybackLoan(address _CollateralAsset, address _Borrower, address _BorrowAsset) external returns (bool){
+    function updateLoanInterest(address _collateralAsset, address _borrower, address _borrowAsset, uint256 _index) internal view returns (uint256){
+        return ((block.timestamp - Lending[_collateralAsset][_borrowAsset][_borrower][_index].StartTime) % 86400) * LoanFee / 100 * Lending[_collateralAsset][_borrowAsset][_borrower][_index].LoanAmount;
 
     }
 
+    function repayLoan(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index, uint256 _Amount) external override returns (bool) {
+        // require(expire);
+        require(IERC20Vault(_BorrowAsset).allowance(_Borrower, address(this)) >= _Amount, "Insufficient allowance");
+        require(IERC20Vault(_BorrowAsset).transferFrom(_Borrower, _BorrowAsset, _Amount), "Transfer loan repayment failed.");
+        Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].LoanInterest = updateLoanInterest(_CollateralAsset, _Borrower, _BorrowAsset, _Index);
+        uint256 _repayAmount = _Amount - Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].LoanInterest;
+        require(Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].LoanAmount >= _repayAmount , "Repay amount more than remaining borrowed asset");
+        Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].LoanInterest = 0;
+        uint256 _percentageRepay = _repayAmount / Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].LoanAmount;
+        uint256 _repayAmountConvert = (_percentageRepay * _repayAmount) / getPrice(_CollateralAsset, _BorrowAsset);
+        Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].Collateral -= _repayAmountConvert;
+        Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].LoanAmount -= _repayAmount;
+        require(IERC20Vault (_CollateralAsset).transfer(_CollateralAsset, _Borrower, _repayAmountConvert), "Transfer amount collateral decrease failed");
+        Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].StartTime = block.timestamp;
+        emit LoanRepaid(_CollateralAsset, _BorrowAsset, _Borrower, _Amount, block.timestamp);
+        if(Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].Collateral == 0 && Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].LoanAmount == 0){
+            deleteLoan(_CollateralAsset, _Borrower, _BorrowAsset, _Index);
+        }
+        else if(Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].StartTime >= Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].EndTime){
+            liquidationLoan(_CollateralAsset, _Borrower, _BorrowAsset, _Index);
+        }
+        return true;
+    }
+
+    function deleteLoan(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index) internal returns (bool){
+        uint256 LenMin1 = Lending[_CollateralAsset][_BorrowAsset][_Borrower].length-1;
+        // uint256 i;
+        if(LenMin1 == 0 || _Index == LenMin1 +1){
+            Lending[_CollateralAsset][_BorrowAsset][_Borrower].pop();
+            return true;
+        }
+        else {
+            for(; _Index < LenMin1; _Index++){
+                Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index] = Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index+1];
+            }
+            Lending[_CollateralAsset][_BorrowAsset][_Borrower].pop();
+            return true;
+        }
+    }
+
+    function liquidationLoan(address _CollateralAsset, address _Borrower, address _BorrowAsset, uint256 _Index) public override returns (bool) {
+        require(block.timestamp >= Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].EndTime, "Loan not matured yet");
+        uint256 liquidationAmount = Lending[_CollateralAsset][_BorrowAsset][_Borrower][_Index].Collateral;
+        require(addLiquidationData(_CollateralAsset, _BorrowAsset, liquidationAmount), "Add liquidation data failed");
+        require(deleteLoan(_CollateralAsset, _Borrower, _BorrowAsset, _Index), "Delete loan failed");
+        emit LoanLiquidated(_CollateralAsset, _BorrowAsset, _Borrower, liquidationAmount, block.timestamp);
+        return true;
+    }
+
+    function addLiquidationData(address _CollateralAsset, address _BorrowAsset, uint256 _Amount) internal returns (bool){
+        LoanLiquidationList[_CollateralAsset][_BorrowAsset].push(LoanLiquidationData(_Amount, block.timestamp, block.timestamp + 86400, true));
+        return true;
+    }
 }
