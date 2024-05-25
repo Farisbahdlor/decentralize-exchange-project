@@ -35,10 +35,12 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
     struct BlockOrder {
         address TraderAddress;
         int256 TotalValue;
+        // int OrderType;
         
     }
     struct OrderPriceData {
         //Price should be to ToAsset value
+        // int256 MarkPrice;
         int256 StartOrderBookBidPrice;
         int256 StartOrderBookAskPrice;
     }
@@ -90,141 +92,83 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
     }
 
     function fillOrderBook (address _FromAsset, address _ToAsset, address _TraderAddress, int256 _OrderQty, int256 _OrderPrice, int _OrderType) internal  returns (bool){
+        //Ordertype 0 for sell, Ordertype 1 for buy, Ordertype 20 (SELL) & 21 (BUY) for Limit order
+        if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice == 0 ||
+        AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice == 0 ||
+        _OrderType == 20 || _OrderType == 21){
+
+            require(fillOrderbook(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, _OrderPrice, _OrderType), "Order placement failed");
+            return true;
+        }
+        else if (_OrderType == 0){
+            if(_OrderPrice <= AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice){
+                //Instant Sell
+                require(processOrderBook(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice, _OrderType), "Order placement failed");
+                return true;
+            }
+        }
+        else if(_OrderType == 1){
+            if(_OrderPrice >= AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice){
+                //Instant Buy
+                require(processOrderBook(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice, _OrderType), "Order placement failed");
+                return true;
+            }
+        }
+        else {
+            return false;
+        }
         
-        //if order price have same price as mark Bid/Ask price, then initiate to instant Buy/Sell
-        if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice == _OrderPrice || 
-        AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice == _OrderPrice){
-            //Instant Buy
-            if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice == _OrderPrice){
-                require(fullfillBuyOrder(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, _OrderPrice), "Order placement failed");
-                return true;
-            }
-            //Instant Sell 
-            else{
-                require(fullfillSellOrder(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, _OrderPrice), "Order placement failed");
-                return true;
-            }
-
-        }
-        //if order price in between current mark Bid/Ask price, then initiate to fillorderbook then change the mark Bid/Ask price
-        else if (AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice > _OrderPrice && 
-        AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice < _OrderPrice){
-            require(fillOrderbook(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, _OrderPrice), "Order placement failed");
-            return true;
-        }
-        else{
-            require(fillOrderbook(_FromAsset, _ToAsset, _TraderAddress, _OrderQty, _OrderPrice), "Order placement failed");
-            return true;
-        }
     }
 
-    function fullfillBuyOrder (address _FromAsset, address _ToAsset, address _TraderAddress, int256 _OrderQty, int256 _BidPrice) private returns (bool success){
+    function processOrderBook (address _FromAsset, address _ToAsset, address _TraderAddress, int256 _OrderQty, int256 _OrderPrice, int _OrderType) private returns (bool success){
         uint256 i;
         int256 _Value;
+        int256 _OrderMustFiLL = _OrderQty * _OrderPrice;
         uint256 _ValueSettlement;
         uint256 _OrderQtySettlement;
-        for(int256 _OrderMustFiLL = _OrderQty * _BidPrice; _OrderMustFiLL > 0;){
-            i = 0;
-            for(int256 Var = OrderBook[_FromAsset][_ToAsset][_BidPrice][i].TotalValue; Var > 0;){
-                
-                _Value = OrderBook[_FromAsset][_ToAsset][_BidPrice][i].TotalValue;
+        for(; _OrderMustFiLL > 0;){
+
+            for(i = 0; OrderBook[_FromAsset][_ToAsset][_OrderPrice].length != 0; ){
+                _Value = OrderBook[_FromAsset][_ToAsset][_OrderPrice][i].TotalValue;
 
                 //if order already fullfill, no need to fill next orderbook list
                 if(_OrderMustFiLL - _Value <= 0){
-                    _ValueSettlement = uint256 (_Value - _OrderMustFiLL);
-                    address _TakerAddress = OrderBook[_FromAsset][_ToAsset][_BidPrice][i].TraderAddress;
-                    require (orderSettlement(_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, uint256 (_OrderQty), _ValueSettlement), "Order failed to execute");
-                    //Delete certain block orderbook
-                    if(_OrderMustFiLL - _Value == 0){
-
-                        deleteOrderbook(_FromAsset,_ToAsset,_BidPrice,i);
-                        if (OrderBook[_FromAsset][_ToAsset][_BidPrice].length == 0){
-                            _BidPrice ++;
-                            AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice = _BidPrice;
-                        }
-                        
-                        emit Settlement (_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, uint256 (_OrderQty), _ValueSettlement, uint256 (_BidPrice) );
-                        
-                        return true;
-                    }
-                    //Partial block orderbook fullfill
-                    else {
-                        OrderBook[_FromAsset][_ToAsset][_BidPrice][i].TotalValue -= _OrderMustFiLL;
-                        emit Settlement (_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, uint256 (_OrderQty), _ValueSettlement, uint256 (_BidPrice) );
-                        return true;
-                    }
+                    OrderBook[_FromAsset][_ToAsset][_OrderPrice][i].TotalValue -= _OrderMustFiLL;
+                    address _TakerAddress = OrderBook[_FromAsset][_ToAsset][_OrderPrice][i].TraderAddress;
+                    require (orderSettlement(_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, uint256 (_OrderQty), uint256 (_OrderMustFiLL)), "Order failed to execute");
+                    _OrderMustFiLL = 0;
+                    
+                    emit Settlement (_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, uint256 (_OrderQty), uint256 (_Value), uint256 (_OrderPrice) );
+                    
+                    break;
                     
                 }
                 //partial order fullfill, go to next orderbook list
                 else {
-                    _ValueSettlement = uint256 (_OrderMustFiLL - _Value);
                     _OrderMustFiLL -= _Value;
-                    _OrderQtySettlement = _ValueSettlement / uint256 (_BidPrice);
-                    address _TakerAddress = OrderBook[_FromAsset][_ToAsset][_BidPrice][i].TraderAddress;
-                    require (orderSettlement(_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, _OrderQtySettlement, _ValueSettlement), "Order failed to execute");
-                    deleteOrderbook(_FromAsset, _ToAsset, _BidPrice, i);
-                    
-                    emit Settlement (_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, _OrderQtySettlement, _ValueSettlement, uint256 (_BidPrice) );
-                    i ++;
+                    _OrderQtySettlement = uint256 (_Value / _OrderPrice);
+                    address _TakerAddress = OrderBook[_FromAsset][_ToAsset][_OrderPrice][i].TraderAddress;
+                    require (orderSettlement(_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, _OrderQtySettlement, uint256 (_Value)), "Order failed to execute");
+                    deleteOrderbook(_FromAsset, _ToAsset, _OrderPrice, i);
+                    emit Settlement (_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, _OrderQtySettlement, _ValueSettlement, uint256 (_OrderPrice) );
+                    if(OrderBook[_FromAsset][_ToAsset][_OrderPrice].length == 0){
+                        
+                        break;
+                    }
                 } 
             }
-            _BidPrice ++; 
-        }
-        AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice = _BidPrice;
-    }
 
-    function fullfillSellOrder (address _FromAsset, address _ToAsset, address _TraderAddress, int256 _OrderQty, int256 _AskPrice) private returns (bool success){
-        uint256 i;
-        int256 _Value;
-        uint256 _ValueSettlement;
-        uint256 _OrderQtySettlement;
-        for(int256 _OrderMustFiLL = _OrderQty * _AskPrice; _OrderMustFiLL > 0;){
-            i = 0;
-            for(int256 Var = OrderBook[_FromAsset][_ToAsset][_AskPrice][i].TotalValue; Var > 0;){
-                
-                _Value = OrderBook[_FromAsset][_ToAsset][_AskPrice][i].TotalValue;
-
-                //if order already fullfill, no need to fill next orderbook list
-                if(_OrderMustFiLL - _Value <= 0){
-                    _ValueSettlement = uint256 (_Value - _OrderMustFiLL);
-                    address _TakerAddress = OrderBook[_FromAsset][_ToAsset][_AskPrice][i].TraderAddress;
-                    require (orderSettlement(_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, uint256 (_OrderQty), _ValueSettlement), "Order failed to execute");
-                    //Delete certain block orderbook
-                    if(_OrderMustFiLL - _Value == 0){
-                        deleteOrderbook(_FromAsset, _ToAsset, _AskPrice, i);
-                        // error akses index NULL/EMPTY
-                        if (OrderBook[_FromAsset][_ToAsset][_AskPrice].length == 0){
-                             _AskPrice --;
-                            AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice = _AskPrice;
-                        }
-                        emit Settlement (_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, uint256 (_OrderQty), _ValueSettlement, uint256 (_AskPrice) );
-                        return true;
-                    }
-                    //Partial block orderbook fullfill
-                    else {
-                        OrderBook[_FromAsset][_ToAsset][_AskPrice][i].TotalValue -= _OrderMustFiLL;
-                        emit Settlement (_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, uint256 (_OrderQty), _ValueSettlement, uint256 (_AskPrice) );
-                        return true;
-                    }
-                    
-                }
-                //partial order fullfill, go to next orderbook list
-                else {
-                    _ValueSettlement = uint256 (_OrderMustFiLL - _Value);
-                    _OrderMustFiLL -= _Value;
-                    _OrderQtySettlement = _ValueSettlement / uint256 (_AskPrice);
-                    address _TakerAddress = OrderBook[_FromAsset][_ToAsset][_AskPrice][i].TraderAddress;
-                    require (orderSettlement(_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, _OrderQtySettlement, _ValueSettlement), "Order failed to execute");
-                    deleteOrderbook(_FromAsset, _ToAsset, _AskPrice, i);
-                    emit Settlement (_FromAsset, _ToAsset, _TraderAddress, _TakerAddress, _OrderQtySettlement, _ValueSettlement, uint256 (_AskPrice) );
-                    i ++;
-                } 
+            if (_OrderType == 0){
+                AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice = _OrderPrice;
+                _OrderPrice --;
+                _OrderMustFiLL = (_OrderMustFiLL / (_OrderPrice -1)) * _OrderPrice;
             }
-            _AskPrice --;
-            
+            else if (_OrderType == 1){
+                AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice = _OrderPrice;
+                _OrderPrice ++;
+            }
         }
-
-        AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice = _AskPrice;
+        return true;
     }
 
     function deleteOrderbook (address _FromAsset, address _ToAsset, int256 _Price, uint256 i) private returns (bool){
@@ -243,22 +187,32 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
     }
         
 
-    function fillOrderbook (address _FromAsset, address _ToAsset, address _TraderAddress, int256 _OrderQty, int256 _OrderPrice) private returns (bool){
+    function fillOrderbook (address _FromAsset, address _ToAsset, address _TraderAddress, int256 _OrderQty, int256 _OrderPrice, int _OrderType) private returns (bool){
         //convert order qty _FromAsset to _ToAsset value
         _OrderQty = _OrderQty * _OrderPrice;
         //insert order to orderbook list
         OrderBook[_FromAsset][_ToAsset][_OrderPrice].push(BlockOrder(_TraderAddress, _OrderQty));
-        if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice == 0 ){
+
+        
+        if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice == 0){
             AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice = _OrderPrice;
+            return true;
         }
-        else if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice == 0 && 
-        AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice > AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice){
+        else if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice == 0){
             AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice = _OrderPrice;
+            return true;
         }
-        else if (AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice > _OrderPrice && 
-        AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice < _OrderPrice){
-            AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice = _OrderPrice;
+        else if(AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice < _OrderPrice && AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice > _OrderPrice){
+            if (_OrderType == 20){
+                AssetPrice[_FromAsset][_ToAsset].StartOrderBookAskPrice = _OrderPrice;
+                return true;
+            }
+            else if (_OrderType == 21){
+                AssetPrice[_FromAsset][_ToAsset].StartOrderBookBidPrice = _OrderPrice;
+                return true;
+            }
         }
+        
         return true;
     }
 
@@ -292,9 +246,9 @@ contract AssetsPairOrderBook is IAssetsPairOrderBook {
 
     function orderSettlement (address _FromAsset, address _ToAsset, address _TraderAddressMaker, address _TraderAddressTaker, uint256 _OrderQty, uint256 _ValueSettlement) private returns (bool){
         //Send _FromAsset from maker to taker 
-        require (IERC20Vault (_FromAsset).transfer(_TraderAddressMaker,_TraderAddressTaker, _OrderQty), "Order failed to settlement");
+        // require (IERC20Vault (_FromAsset).transfer(_TraderAddressMaker,_TraderAddressTaker, _OrderQty), "Order failed to settlement");
         //Send _ToAsset from taker to maker 
-        require (IERC20Vault (_ToAsset).transfer(_TraderAddressTaker,_TraderAddressMaker, _ValueSettlement), "Order failed to settlement");
+        // require (IERC20Vault (_ToAsset).transfer(_TraderAddressTaker,_TraderAddressMaker, _ValueSettlement), "Order failed to settlement");
         //emit settlement
         return true;
     }
