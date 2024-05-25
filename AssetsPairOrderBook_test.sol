@@ -8,9 +8,9 @@ import "remix_tests.sol";
 // This import is required to use custom transaction context
 // Although it may fail compilation in 'Solidity Compiler' plugin
 // But it will work fine in 'Solidity Unit Testing' plugin
-import "remix_accounts.sol";
+// import "remix_accounts.sol";
 //change index path to suit you file location
-import "../Permissionless-L1-RollsUp/contracts/AssetsPairOrderBook.sol";
+import "../DecentralizedExchange/contracts/AssetsPairOrderBook.sol";
 
 
 
@@ -23,53 +23,40 @@ contract testSuite {
         TestAssetsPairOrderBook = new AssetsPairOrderBook();
     }
     
-    //input OrderBook List from 0 to 9 price range with 10 qty
     function checkSuccessFillOrder() public returns (bool success){
         
         int i;
         int j;
-        i = 10;
+        i = 100;
         int256 Test1;
         int256 Test2;
         j = i / 2;
         i = j;
         while (i != 0){
-            TestAssetsPairOrderBook.entryOrderBook(address(this), 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4, 10, j, 1);
+            TestAssetsPairOrderBook.entryOrderBook(address(this), 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4, 10, j, 20);
             j ++;
             i--;
-            TestAssetsPairOrderBook.entryOrderBook(address(this), 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4, 10, i, 1);
+            TestAssetsPairOrderBook.entryOrderBook(address(this), 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4, 10, i, 21);
         }
         (Test1, Test2) = TestAssetsPairOrderBook.AssetPrice(address(this),0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984);
         emit TestResult (Test1,Test2);
         return true;
     }
 
-    //fullfill orderbook list with equal qty order 0 to 9 price range
-    function checkSuccessFullfillOrder(int256 j) public returns (bool success){
+    function checkInstantBuyOrder(int256 Price, int256 Qty) public returns (bool success){
         
-        int i;
-        int256 Test1;
-        int256 Test2;
-        i = j;
-        for (;i != 10;){
-            TestAssetsPairOrderBook.entryOrderBook(address(this), 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2, 10, i,1);
-            
-            i++;
-            (Test1, Test2) = TestAssetsPairOrderBook.AssetPrice(address(this),0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984);
-            emit TestResult (Test1,Test2);
-        }
-        j--;
-        for (;j != 0;){
-            TestAssetsPairOrderBook.entryOrderBook(address(this), 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2, 10, j,1);
-            
-            j--;
-            (Test1, Test2) = TestAssetsPairOrderBook.AssetPrice(address(this),0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984);
-            emit TestResult (Test1,Test2);
-        }
+        TestAssetsPairOrderBook.entryOrderBook(address(this), 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2, Qty, Price,1);
         
-        (Test1, Test2) = TestAssetsPairOrderBook.AssetPrice(address(this),0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984);
-        
-        emit TestResult (Test1,Test2);
+        return true;
+    }
+
+    function checkInstantSellOrder(int256 Price, int256 Qty) public returns (bool success){
+        TestAssetsPairOrderBook.entryOrderBook(address(this), 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2, Qty, Price,0);
+        return true;
+    }
+
+    function checkLimitOrder(int256 Price, int256 Qty, int OrderType) public returns (bool success){
+        TestAssetsPairOrderBook.entryOrderBook(address(this), 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984, 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2, Qty, Price,(20 + OrderType));
         return true;
     }
 
