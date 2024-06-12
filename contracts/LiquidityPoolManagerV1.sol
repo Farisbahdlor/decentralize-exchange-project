@@ -80,6 +80,7 @@ contract LiquidityPoolManagerV1 is ILiquidityPoolManagerV1 {
         return ((_amountFromTokens * 10 ** 36) / (_amountFromTokens + poolPairBalance[_to][_from]) * poolPairBalance[_from][_to]);
     }
 
+    // Need further algoritm for process to provide new input deposit staking to LP
     function depositStaking (address _staker, address _from, address _to, uint256 _amountFromStake, uint256 _timeLock) public onlyAccHaveAccess override returns (bool){
         commitToPool(_staker, _from, _amountFromStake);
         uint256 _index = poolStaker[_from][_staker].length;
@@ -95,6 +96,7 @@ contract LiquidityPoolManagerV1 is ILiquidityPoolManagerV1 {
         return true;
     }
 
+    // Need further algoritm process to provide user staking witdrawl rasio from LP
     function withdrawlStaking (address _staker, address _from, address _to, uint256 _amountFromStake, uint256 _index) external onlyAccHaveAccess override returns (bool){
         require(poolStaker[_from][_staker][_index].timeLock <= block.timestamp, "Not exceed the specified time for liquidity to withdrawl");
         require(poolPairBalance[_to][_from] >= _amountFromStake, "Not enough liquidity pool to withdrawl, please wait awhile for liquidity pool to adjust");
